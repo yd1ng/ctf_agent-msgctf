@@ -81,7 +81,8 @@ async def do_submit_flag(ctfd, challenge_name: str, flag: str) -> tuple[str, boo
 
     try:
         result = await ctfd.submit_flag(challenge_name, flag)
-        is_confirmed = result.status in ("correct", "already_solved")
+        # ALREADY_SOLVED does not prove that this candidate flag was correct.
+        is_confirmed = result.status == "correct"
         return result.display, is_confirmed
     except Exception as e:
         return f"submit_flag error: {e}", False

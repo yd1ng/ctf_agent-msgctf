@@ -1,0 +1,9 @@
+.git
+.env
+data
+challenges*
+logs
+__pycache__
+.venv
+*.pyc
+*.jsonl

@@ -29,11 +29,14 @@ def _setup_logging(verbose: bool = False) -> None:
 
 
 @click.command()
+@click.option("--platform", default=None, type=click.Choice(["ctfd", "msgctf"]), help="Challenge platform (overrides .env)")
 @click.option("--ctfd-url", default=None, help="CTFd URL (overrides .env)")
 @click.option("--ctfd-token", default=None, help="CTFd API token (overrides .env)")
+@click.option("--msgctf-url", default=None, help="MSG CTF site URL (overrides .env)")
 @click.option("--image", default="ctf-sandbox", help="Docker sandbox image name")
 @click.option("--models", multiple=True, help="Model specs (default: all configured)")
 @click.option("--challenge", default=None, help="Solve a single challenge directory")
+@click.option("--list", "list_challenges", is_flag=True, help="List currently opened challenges and exit")
 @click.option("--challenges-dir", default="challenges", help="Directory for challenge files")
 @click.option("--no-submit", is_flag=True, help="Dry run — don't submit flags")
 @click.option("--coordinator-model", default=None, help="Model for coordinator (default: gpt-5.6-sol)")
@@ -42,11 +45,14 @@ def _setup_logging(verbose: bool = False) -> None:
 @click.option("--msg-port", default=0, type=int, help="Operator message port (0 = auto)")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
 def main(
+    platform: str | None,
     ctfd_url: str | None,
     ctfd_token: str | None,
+    msgctf_url: str | None,
     image: str,
     models: tuple[str, ...],
     challenge: str | None,
+    list_challenges: bool,
     challenges_dir: str,
     no_submit: bool,
     coordinator_model: str | None,
@@ -62,25 +68,47 @@ def main(
     _setup_logging(verbose)
 
     settings = Settings(sandbox_image=image)
+    if platform:
+        settings.platform = platform
     if ctfd_url:
         settings.ctfd_url = ctfd_url
     if ctfd_token:
         settings.ctfd_token = ctfd_token
+    if msgctf_url:
+        settings.msgctf_url = msgctf_url
     settings.max_concurrent_challenges = max_challenges
 
     model_specs = list(models) if models else list(DEFAULT_MODELS)
 
     console.print("[bold]CTF Agent v2[/bold]")
-    console.print(f"  CTFd: {settings.ctfd_url}")
+    console.print(f"  Platform: {settings.platform}")
+    console.print(f"  URL: {settings.msgctf_url if settings.platform == 'msgctf' else settings.ctfd_url}")
     console.print(f"  Models: {', '.join(model_specs)}")
     console.print(f"  Image: {settings.sandbox_image}")
     console.print(f"  Max challenges: {max_challenges}")
     console.print()
 
-    if challenge:
+    if list_challenges:
+        asyncio.run(_run_list(settings))
+    elif challenge:
         asyncio.run(_run_single(settings, challenge, model_specs, no_submit, max_challenges))
     else:
         asyncio.run(_run_coordinator(settings, model_specs, challenges_dir, no_submit, coordinator_model, coordinator, max_challenges, msg_port))
+
+
+async def _run_list(settings: Settings) -> None:
+    from backend.agents.coordinator_loop import build_deps
+
+    client, _, _ = build_deps(settings)
+    try:
+        stubs = await client.fetch_challenge_stubs()
+        solved = await client.fetch_solved_names()
+        for ch in stubs:
+            state = "solved" if ch["name"] in solved else "open"
+            console.print(f"  [{state}] {ch['name']}")
+        console.print(f"{len(stubs)} opened challenge(s)")
+    finally:
+        await client.close()
 
 
 async def _run_single(
@@ -91,9 +119,8 @@ async def _run_single(
     max_challenges: int,
 ) -> None:
     """Run a single challenge with a swarm."""
+    from backend.agents.coordinator_loop import build_deps
     from backend.agents.swarm import ChallengeSwarm
-    from backend.cost_tracker import CostTracker
-    from backend.ctfd import CTFdClient
     from backend.prompts import ChallengeMeta
     from backend.sandbox import cleanup_orphan_containers, configure_semaphore
 
@@ -110,13 +137,7 @@ async def _run_single(
     meta = ChallengeMeta.from_yaml(meta_path)
     console.print(f"[bold]Challenge:[/bold] {meta.name} ({meta.category}, {meta.value} pts)")
 
-    ctfd = CTFdClient(
-        base_url=settings.ctfd_url,
-        token=settings.ctfd_token,
-        username=settings.ctfd_user,
-        password=settings.ctfd_pass,
-    )
-    cost_tracker = CostTracker()
+    ctfd, cost_tracker, _ = build_deps(settings, model_specs, str(challenge_path.parent), no_submit)
 
     swarm = ChallengeSwarm(
         challenge_dir=str(challenge_path),

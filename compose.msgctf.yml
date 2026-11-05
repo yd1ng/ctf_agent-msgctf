@@ -1,0 +1,26 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    image: ctf-agent-msgctf:local
+    env_file: .env
+    environment:
+      PLATFORM: msgctf
+      TMPDIR: ${CTF_HOST_DATA_DIR}/tmp
+      CODEX_HOME: /root/.codex
+    volumes:
+      # The child Docker daemon must see the exact same absolute paths.
+      - ${CTF_HOST_DATA_DIR}:${CTF_HOST_DATA_DIR}:rw
+      - ${CTF_HOST_DATA_DIR}/logs:/app/logs:rw
+      - ${CTF_HOST_DATA_DIR}/codex-home:/root/.codex:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - ctf-solve
+      - --platform
+      - msgctf
+      - --challenges-dir
+      - ${CTF_HOST_DATA_DIR}/challenges
+      - --max-challenges
+      - "1"
+      - -v

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from backend.cost_tracker import CostTracker
 from backend.ctfd import CTFdClient
 from backend.deps import CoordinatorDeps
 from backend.models import DEFAULT_MODELS
+from backend.msgctf import MSGCTFClient
 from backend.poller import CTFdPoller
 from backend.prompts import ChallengeMeta
 
@@ -30,14 +32,28 @@ def build_deps(
     no_submit: bool = False,
     challenge_dirs: dict[str, str] | None = None,
     challenge_metas: dict[str, ChallengeMeta] | None = None,
-) -> tuple[CTFdClient, CostTracker, CoordinatorDeps]:
-    """Create CTFd client, cost tracker, and coordinator deps."""
-    ctfd = CTFdClient(
-        base_url=settings.ctfd_url,
-        token=settings.ctfd_token,
-        username=settings.ctfd_user,
-        password=settings.ctfd_pass,
-    )
+) -> tuple[CTFdClient | MSGCTFClient, CostTracker, CoordinatorDeps]:
+    """Create the selected platform client, cost tracker, and coordinator deps."""
+    if settings.platform == "msgctf":
+        if not settings.msgctf_url:
+            raise ValueError("MSGCTF_URL is required for --platform msgctf")
+        ctfd = MSGCTFClient(
+            base_url=settings.msgctf_url,
+            login_id=settings.msgctf_login_id,
+            password=settings.msgctf_password,
+            access_token=settings.msgctf_access_token,
+            refresh_token=settings.msgctf_refresh_token,
+            manage_instances=settings.msgctf_manage_instances,
+        )
+    elif settings.platform == "ctfd":
+        ctfd = CTFdClient(
+            base_url=settings.ctfd_url,
+            token=settings.ctfd_token,
+            username=settings.ctfd_user,
+            password=settings.ctfd_pass,
+        )
+    else:
+        raise ValueError(f"Unsupported platform: {settings.platform}")
     cost_tracker = CostTracker()
     specs = model_specs or list(DEFAULT_MODELS)
     Path(challenges_root).mkdir(parents=True, exist_ok=True)
@@ -141,6 +157,12 @@ async def run_event_loop(
                     parts.append(f"SOLVER FINISHED: Swarm for '{name}' completed. Check results or retry.")
                     deps.swarm_tasks.pop(name, None)
 
+            # Rotate a single MSG CTF instance among opened unsolved challenges.
+            _rotate_msgctf_swarm(deps, poller)
+
+            # Keep filling free slots as new board challenges open or a solver finishes.
+            await _auto_spawn_unsolved(deps, poller)
+
             # Drain solver-to-coordinator messages
             while True:
                 try:
@@ -210,7 +232,10 @@ async def run_event_loop(
 
 async def _auto_spawn_one(deps: CoordinatorDeps, challenge_name: str) -> None:
     """Auto-spawn a swarm for a single challenge if not already running."""
-    if challenge_name in deps.swarms:
+    if challenge_name in deps.results:
+        return
+    old = deps.swarms.get(challenge_name)
+    if old and not old.cancel_event.is_set():
         return
     active = sum(1 for t in deps.swarm_tasks.values() if not t.done())
     if active >= deps.max_concurrent_challenges:
@@ -226,8 +251,33 @@ async def _auto_spawn_one(deps: CoordinatorDeps, challenge_name: str) -> None:
 async def _auto_spawn_unsolved(deps: CoordinatorDeps, poller) -> None:
     """Auto-spawn swarms for all unsolved challenges that don't have active swarms."""
     unsolved = poller.known_challenges - poller.known_solved
-    for name in sorted(unsolved):
+    if deps.settings.platform == "msgctf":
+        # Never-attempted challenges come first, newest opened first among them.
+        opened = [name for name in deps.ctfd.opened_order if name in unsolved]
+        ordered = sorted(opened, key=lambda name: deps.swarm_started_at.get(name, 0))
+    else:
+        ordered = sorted(unsolved)
+    for name in ordered:
         await _auto_spawn_one(deps, name)
+
+
+def _rotate_msgctf_swarm(deps: CoordinatorDeps, poller: CTFdPoller) -> None:
+    """Give other opened problems a turn when one solver runs indefinitely."""
+    if deps.settings.platform != "msgctf" or deps.max_concurrent_challenges != 1:
+        return
+    active = [(name, task) for name, task in deps.swarm_tasks.items() if not task.done()]
+    if len(active) != 1:
+        return
+    name, _ = active[0]
+    unsolved = poller.known_challenges - poller.known_solved - deps.results.keys()
+    if not (unsolved - {name}):
+        return
+    started = deps.swarm_started_at.get(name)
+    limit = max(60, deps.settings.msgctf_swarm_timeslice_seconds)
+    swarm = deps.swarms.get(name)
+    if started is not None and swarm and not swarm.cancel_event.is_set() and time.monotonic() - started >= limit:
+        logger.info("MSG CTF time slice reached for %s; moving to another opened challenge", name)
+        swarm.kill()
 
 
 async def _start_msg_server(inbox: asyncio.Queue, port: int = 0) -> asyncio.Server | None:

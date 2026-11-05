@@ -86,7 +86,7 @@ SANDBOX_TOOLS = [
     },
     {
         "name": "submit_flag",
-        "description": "Submit a flag to CTFd. Returns CORRECT, ALREADY SOLVED, or INCORRECT.",
+        "description": "Submit a flag to the configured CTF platform. Returns CORRECT, ALREADY SOLVED, INCORRECT, or RATE LIMITED.",
         "inputSchema": {"type": "object", "properties": {"flag": {"type": "string"}}, "required": ["flag"]},
     },
     {
@@ -213,10 +213,9 @@ class CodexSolver:
             "model": self.model_id,
             "personality": "pragmatic",
             "baseInstructions": sandbox_preamble + system_prompt,
-            "cwd": "/challenge",
+            "cwd": self.challenge_dir,
             "approvalPolicy": "on-request",
             "sandbox": "read-only",
-            "serviceTier": "flex",
             "dynamicTools": SANDBOX_TOOLS,
         }
         # Reasoning effort for models that support it

@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from backend.agents.solver import Solver
 from backend.cost_tracker import CostTracker
 from backend.ctfd import CTFdClient
 from backend.message_bus import ChallengeMessageBus
@@ -26,6 +25,7 @@ from backend.solver_base import (
 from backend.writeup import write_solve_writeup
 
 if TYPE_CHECKING:
+    from backend.agents.solver import Solver
     from backend.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,8 @@ class ChallengeSwarm:
 
     def _create_pydantic_solver(self, model_spec: str, sandbox=None, owns_sandbox: bool | None = None) -> Solver:
         """Create a Pydantic AI solver for explicitly requested API-backed specs."""
+        from backend.agents.solver import Solver
+
         solver = Solver(
             model_spec=model_spec,
             challenge_dir=self.challenge_dir,
@@ -168,13 +170,13 @@ class ChallengeSwarm:
                         False,
                     )
 
-            self._submitted_flags.add(normalized)
-
             from backend.tools.core import do_submit_flag
             display, is_confirmed = await do_submit_flag(self.ctfd, self.meta.name, flag)
             if is_confirmed:
                 self.confirmed_flag = normalized
-            else:
+                self._submitted_flags.add(normalized)
+            elif display.startswith("INCORRECT"):
+                self._submitted_flags.add(normalized)
                 self._submit_count[model_spec] = wrong_count + 1
                 self._last_submit_time[model_spec] = time.monotonic()
             return display, is_confirmed

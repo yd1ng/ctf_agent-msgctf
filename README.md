@@ -1,5 +1,59 @@
 # CTF Agent
 
+## MSG CTF mode
+
+This fork can use the participant API implemented in
+[`MSG-CTF/msg-backend`](https://github.com/MSG-CTF/msg-backend) while keeping the
+existing CTFd mode. It polls `GET /api/v1/board/opened_challenges`, retrieves
+details and attached files for opened problems, starts a challenge instance when
+the detail says one is required, runs the existing Codex solver, and submits
+confirmed flags to `POST /api/v1/challenges/{id}/submit`. Only challenges already
+opened by your team appear in that API; board dice rolls and challenge selection
+remain manual.
+
+```sh
+cp .env.msgctf.example .env
+# Edit MSGCTF_URL, MSGCTF_LOGIN_ID, MSGCTF_PASSWORD in .env.
+codex login
+./run-msgctf.sh --list       # check authentication and opened problems
+./run-msgctf.sh --no-submit  # solve without sending flags
+./run-msgctf.sh              # solve and submit during the event
+```
+
+The runner builds the solver's full `ctf-sandbox` image once, then builds and
+starts the coordinator image with Docker Compose. The first sandbox build downloads
+many CTF tools and can take a while. Challenge files and writeups are saved under
+`data/challenges/`, and solver traces under `data/logs/`. Use `Ctrl+C` to stop the coordinator.
+
+The Compose coordinator mounts the host Docker socket. On first run, the runner
+copies only your Codex CLI `auth.json` into `data/codex-home/`; this avoids a
+host Codex configuration that points at a host-only `localhost` service. The
+copy is writable so Codex can refresh its login. If you log in with a different
+host account later, remove `data/codex-home/auth.json` before starting again.
+Child solver containers receive challenge files and a scratch workspace; they
+do not receive MSG CTF credentials or the Codex login directory.
+`--max-challenges 1` is intentional: the backend permits one active instance per
+participant and may require confirmation before replacing it. The adapter will
+confirm replacement using the current instance ID when the backend requests it.
+When multiple unsolved problems are open, the runner rotates after 15 minutes on
+one problem so the next problem gets a turn. Set `MSGCTF_SWARM_TIMESLICE_SECONDS`
+in `.env` to change this interval.
+
+The API client uses the backend's `{code, message, data}` envelope, refreshes
+Bearer tokens, downloads attachments from the fixed same-site file endpoint,
+and respects `TOO_MANY_ATTEMPTS` responses. Remote executable submission
+(`remote_run`) is not wired into the solver; those problems can still be read and
+their supplied files downloaded, but solving them may need a separate tool.
+
+For local Python execution instead of Compose:
+
+```sh
+uv sync
+docker build -f sandbox/Dockerfile.sandbox -t ctf-sandbox .
+uv run ctf-solve --platform msgctf --list
+uv run ctf-solve --platform msgctf --challenges-dir challenges --max-challenges 1 -v
+```
+
 uv run ctf-solve --challenges-dir challenges -v
 uv run ctf-solve --challenges-dir challenges --max-challenges 20 -v
 

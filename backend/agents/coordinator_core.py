@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 
 from backend.deps import CoordinatorDeps
@@ -20,6 +21,7 @@ async def do_fetch_challenges(deps: CoordinatorDeps) -> str:
     result = [
         {
             "name": ch.get("name", "?"),
+            "title": ch.get("title", ch.get("name", "?")),
             "category": ch.get("category", "?"),
             "value": ch.get("value", 0),
             "solves": ch.get("solves", 0),
@@ -56,11 +58,11 @@ async def do_spawn_swarm(deps: CoordinatorDeps, challenge_name: str) -> str:
         return f"Swarm still running for {challenge_name}"
 
     # Auto-pull challenge if needed
-    if challenge_name not in deps.challenge_dirs:
+    if challenge_name not in deps.challenge_dirs or deps.settings.platform == "msgctf":
         challenges = await deps.ctfd.fetch_all_challenges()
         ch_data = next((c for c in challenges if c.get("name") == challenge_name), None)
         if not ch_data:
-            return f"Challenge '{challenge_name}' not found on CTFd"
+            return f"Challenge '{challenge_name}' not found on platform"
         output_dir = str(Path(deps.challenges_root))
         ch_dir = await deps.ctfd.pull_challenge(ch_data, output_dir)
         deps.challenge_dirs[challenge_name] = ch_dir
@@ -92,6 +94,7 @@ async def do_spawn_swarm(deps: CoordinatorDeps, challenge_name: str) -> str:
 
     task = asyncio.create_task(_run_and_cleanup(), name=f"swarm-{challenge_name}")
     deps.swarm_tasks[challenge_name] = task
+    deps.swarm_started_at[challenge_name] = time.monotonic()
     return f"Swarm spawned for {challenge_name} with {len(deps.model_specs)} models"
 
 

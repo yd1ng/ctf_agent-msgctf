@@ -78,7 +78,7 @@ def _build_coordinator_mcp(deps: CoordinatorDeps):
     async def check_swarm_status(args: dict) -> dict:
         return _text(await do_check_swarm_status(deps, args["challenge_name"]))
 
-    @tool("submit_flag", "Submit a flag to CTFd.", {"challenge_name": str, "flag": str})
+    @tool("submit_flag", "Submit a flag to the configured CTF platform.", {"challenge_name": str, "flag": str})
     async def submit_flag(args: dict) -> dict:
         return _text(await do_submit_flag(deps, args["challenge_name"], args["flag"]))
 

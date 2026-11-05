@@ -85,7 +85,7 @@ COORDINATOR_TOOLS = [
     },
     {
         "name": "submit_flag",
-        "description": "Submit a flag to CTFd.",
+        "description": "Submit a flag to the configured CTF platform.",
         "inputSchema": {
             "type": "object",
             "properties": {"challenge_name": {"type": "string"}, "flag": {"type": "string"}},

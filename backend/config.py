@@ -6,11 +6,22 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    platform: str = "ctfd"
+
     # CTFd
     ctfd_url: str = "http://localhost:8000"
     ctfd_user: str = "admin"
     ctfd_pass: str = "admin"
     ctfd_token: str = ""
+
+    # MSG CTF (participant account; no administrator API)
+    msgctf_url: str = ""
+    msgctf_login_id: str = ""
+    msgctf_password: str = ""
+    msgctf_access_token: str = ""
+    msgctf_refresh_token: str = ""
+    msgctf_manage_instances: bool = True
+    msgctf_swarm_timeslice_seconds: int = 900
 
     # Optional API-backed providers. Codex defaults use the local CLI login instead.
     anthropic_api_key: str = ""

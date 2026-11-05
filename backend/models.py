@@ -4,17 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import boto3
-from pydantic_ai.models import Model
-from pydantic_ai.models.bedrock import BedrockConverseModel, BedrockModelSettings
-from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
-from pydantic_ai.models.openai import OpenAIModel, OpenAIModelSettings
-from pydantic_ai.providers.bedrock import BedrockProvider
-from pydantic_ai.providers.google import GoogleProvider
-from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.settings import ModelSettings
-
 if TYPE_CHECKING:
+    from pydantic_ai.models import Model
+    from pydantic_ai.settings import ModelSettings
+
     from backend.config import Settings
 
 # Default model specs - Codex provider uses `codex app-server` and the local CLI login.
@@ -41,6 +34,14 @@ VISION_MODELS: set[str] = {
 
 def resolve_model(spec: str, settings: Settings) -> Model:
     """Resolve a 'provider/model_id' spec to a Pydantic AI Model."""
+    import boto3
+    from pydantic_ai.models.bedrock import BedrockConverseModel
+    from pydantic_ai.models.google import GoogleModel
+    from pydantic_ai.models.openai import OpenAIModel
+    from pydantic_ai.providers.bedrock import BedrockProvider
+    from pydantic_ai.providers.google import GoogleProvider
+    from pydantic_ai.providers.openai import OpenAIProvider
+
     provider = provider_from_spec(spec)
     model_id = model_id_from_spec(spec)
     match provider:
@@ -92,6 +93,11 @@ def resolve_model(spec: str, settings: Settings) -> Model:
 
 def resolve_model_settings(spec: str) -> ModelSettings:
     """Get provider-specific model settings with caching enabled."""
+    from pydantic_ai.models.bedrock import BedrockModelSettings
+    from pydantic_ai.models.google import GoogleModelSettings
+    from pydantic_ai.models.openai import OpenAIModelSettings
+    from pydantic_ai.settings import ModelSettings
+
     provider = spec.split("/", 1)[0]
     match provider:
         case "bedrock":

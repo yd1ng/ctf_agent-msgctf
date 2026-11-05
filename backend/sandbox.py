@@ -134,14 +134,24 @@ class DockerSandbox:
                     "ExtraHosts": ["host.docker.internal:host-gateway"],
                     "CapAdd": ["SYS_ADMIN", "SYS_PTRACE"],
                     "SecurityOpt": ["seccomp=unconfined"],
-                    "Devices": [{"PathOnHost": "/dev/loop-control", "PathInContainer": "/dev/loop-control", "CgroupPermissions": "rwm"}],
                     "Memory": self._parse_memory_limit(),
                     "NanoCpus": int(2 * 1e9),
                 },
             }
 
-            self._container = await self._docker.containers.create(config)
-            await self._container.start()
+            try:
+                self._container = await self._docker.containers.create(config)
+                await self._container.start()
+            except Exception:
+                if self._container is not None:
+                    await self._container.delete(force=True)
+                    self._container = None
+                await self._docker.close()
+                self._docker = None
+                import shutil
+                shutil.rmtree(self.workspace_dir, ignore_errors=True)
+                self.workspace_dir = ""
+                raise
             await _track_start()
 
             info = await self._container.show()
